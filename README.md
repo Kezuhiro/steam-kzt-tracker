@@ -46,7 +46,7 @@ steam_bot/
 ├── pipeline.md             # Project data flow overview
 └── requirements.txt        # Project dependencies
 
-
+```
 ---
 
 ## How to Run
