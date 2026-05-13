@@ -1,4 +1,3 @@
-```markdown
 # Steam KZT Price Tracker & Freebies Bot
 
 An asynchronous Telegram bot for tracking Steam game prices in Kazakhstan Tenge (KZT/₸) and monitoring 100% discount giveaways without third-party spam.
@@ -47,7 +46,6 @@ steam_bot/
 ├── pipeline.md             # Project data flow overview
 └── requirements.txt        # Project dependencies
 
-```
 
 ---
 
