@@ -6,11 +6,7 @@ from . import steam_api
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 async def start_watcher(bot: Bot, interval_hours: float = 4):
-    """Бесконечный цикл проверки цен."""
     logging.info(f"👁️ Watcher запущен! Проверка каждые {interval_hours} ч.")
-    
-    # Чтобы бот не начинал парсить Steam в ту же секунду после запуска,
-    # дадим ему 10 секунд на инициализацию.
     await asyncio.sleep(10)
     
     while True:
@@ -33,7 +29,6 @@ async def check_discounts(bot: Bot):
     actual_prices = await steam_api.fetch_prices_for_watcher(app_ids)
     
     for game in tracked_games:
-        # Распаковываем все 8 переменных из БД
         app_id, name, db_last_price, db_initial, db_discount, db_image, db_genres, db_meta = game
         str_app_id = str(app_id)
         
@@ -43,7 +38,6 @@ async def check_discounts(bot: Bot):
         game_info = actual_prices[str_app_id]
         subs = game_info.get("subs", [])
         
-        # Обновляем картинку и метаданные (если они вдруг обновились в Steam)
         actual_image = game_info.get("header_image", db_image)
         actual_genres = game_info.get("genres", db_genres)
         actual_meta = str(game_info.get("metacritic", db_meta))
@@ -88,18 +82,15 @@ async def check_discounts(bot: Bot):
                 except Exception as e:
                     logging.error(f"Не удалось отправить уведомление {tg_id}: {e}")
             
-        # Обновляем запись в БД (со всеми 8 параметрами)
         if actual_price != db_last_price or actual_discount != db_discount or actual_image != db_image:
             await db.save_tracked_game(app_id, name, actual_price, actual_initial, actual_discount, actual_image, actual_genres, actual_meta)
             
     logging.info("✅ Watcher завершил цикл проверки.")
 
-# --- ДОБАВИТЬ ЭТИ ДВЕ ФУНКЦИИ В ФАЙЛ watcher.py ---
-
 async def start_freebies_watcher(bot: Bot, interval_hours: float = 1.0):
     """Отдельный цикл проверки бесплатных раздач (раз в час)."""
     logging.info(f"🎁 Freebies Watcher запущен! Проверка каждые {interval_hours} ч.")
-    await asyncio.sleep(5) # Ждем пару секунд после старта бота
+    await asyncio.sleep(5) 
     
     while True:
         try:
@@ -123,7 +114,7 @@ async def check_freebies(bot: Bot):
     for freebie in freebies:
         post_id = freebie["id"]
         
-        # Если уже отправляли эту игру — пропускаем
+        # Если уже отправляли эту игру пропускаем
         if await db.is_freebie_sent(post_id):
             continue
             
@@ -151,4 +142,4 @@ async def check_freebies(bot: Bot):
         
         # Помечаем как отправленное, чтобы не спамить
         await db.mark_freebie_sent(post_id, freebie["title"], freebie["url"])
-        await asyncio.sleep(0.5) # Пауза против спам-лимитов Telegram
+        await asyncio.sleep(0.5) 

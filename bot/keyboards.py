@@ -11,7 +11,6 @@ main_menu = ReplyKeyboardMarkup(
 )
 
 def settings_kb(wants_freebies: int):
-    # Динамическая кнопка: меняется в зависимости от того, включены раздачи или нет
     freebies_text = "🔕 Выкл. уведомления о раздачах" if wants_freebies == 1 else "🔔 Вкл. уведомления о раздачах"
     
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -19,16 +18,15 @@ def settings_kb(wants_freebies: int):
         [InlineKeyboardButton(text=freebies_text, callback_data="toggle_freebies")]
     ])
 
-# Кнопка для массовой подписки на вишлист
+
 def track_all_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔔 Отслеживать весь вишлист", callback_data="track_wishlist")]
     ])
 
-# Клавиатура для управления отслеживаемыми играми
+
 def tracked_games_kb(games):
     builder = []
-    # Создаем кнопку удаления для каждой игры
     for app_id, name in games:
         builder.append([InlineKeyboardButton(text=f"❌ Удалить: {name}", callback_data=f"untrack_{app_id}")])
     

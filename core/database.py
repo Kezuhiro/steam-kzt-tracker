@@ -12,7 +12,7 @@ async def init_db():
             )
         ''')
         
-        # ДОБАВЛЕНЫ: header_image, genres, metacritic
+
         await db.execute('''
             CREATE TABLE IF NOT EXISTS tracked_games (
                 app_id INTEGER PRIMARY KEY,
@@ -81,22 +81,13 @@ async def link_user_game(tg_id: int, app_id: int):
         await db.execute('INSERT OR IGNORE INTO user_games (tg_id, app_id) VALUES (?, ?)', (tg_id, app_id))
         await db.commit()
 
-
-async def get_all_tracked_games():
-    """Получает все игры, за которыми кто-то следит."""
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT app_id, name, last_price, initial_price, discount_pct FROM tracked_games') as cursor:
-            return await cursor.fetchall()
-
 async def get_users_tracking_game(app_id: int):
-    """Получает tg_id всех пользователей, подписанных на конкретную игру."""
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT tg_id FROM user_games WHERE app_id = ?', (app_id,)) as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
         
 async def get_user_tracked_games(tg_id: int):
-    """Получает список игр, которые отслеживает конкретный пользователь."""
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('''
             SELECT g.app_id, g.name 
@@ -107,46 +98,38 @@ async def get_user_tracked_games(tg_id: int):
             return await cursor.fetchall()
 
 async def untrack_game(tg_id: int, app_id: int):
-    """Удаляет привязку игры к пользователю."""
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('DELETE FROM user_games WHERE tg_id = ? AND app_id = ?', (tg_id, app_id))
         await db.commit()
 
 async def get_all_tracked_games():
-    """Получает все игры, за которыми кто-то следит."""
     async with aiosqlite.connect(DB_NAME) as db:
-        # Добавлены новые колонки в SELECT
         async with db.execute('SELECT app_id, name, last_price, initial_price, discount_pct, header_image, genres, metacritic FROM tracked_games') as cursor:
             return await cursor.fetchall()
     
 async def get_all_users():
-    """Получает tg_id всех зарегистрированных пользователей для глобальной рассылки."""
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT tg_id FROM users') as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
 async def is_freebie_sent(post_id: str):
-    """Проверяет, отправляли ли мы уже эту раздачу."""
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT 1 FROM sent_freebies WHERE post_id = ?', (post_id,)) as cursor:
             return await cursor.fetchone() is not None
 
 async def mark_freebie_sent(post_id: str, title: str, url: str):
-    """Записывает раздачу в базу, чтобы не отправить её повторно."""
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('INSERT INTO sent_freebies (post_id, title, url) VALUES (?, ?, ?)', (post_id, title, url))
         await db.commit()
 
 async def get_users_for_freebies():
-    """Получает тех, кто НЕ отключал уведомления о раздачах."""
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT tg_id FROM users WHERE wants_freebies = 1') as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
 async def toggle_freebies_setting(tg_id: int):
-    """Переключает статус уведомлений (Вкл/Выкл)."""
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT wants_freebies FROM users WHERE tg_id = ?', (tg_id,)) as cursor:
             row = await cursor.fetchone()

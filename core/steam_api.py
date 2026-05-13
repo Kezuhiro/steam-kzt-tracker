@@ -21,7 +21,6 @@ async def resolve_steam_id(steam_type: str, steam_val: str, session: aiohttp.Cli
     return None
 
 async def fetch_game_details(appid: int, session: aiohttp.ClientSession, sem: asyncio.Semaphore, games_data: dict):
-    """Асинхронный воркер для получения деталей одной игры"""
     async with sem:
         details_url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=kz&l=russian"
         async with session.get(details_url) as details_resp:
@@ -36,7 +35,6 @@ async def fetch_game_details(appid: int, session: aiohttp.ClientSession, sem: as
                         game_data = info["data"]
                         price_overview = game_data.get("price_overview")
                         
-                        # --- НОВЫЕ ПОЛЯ ---
                         header_image = game_data.get("header_image", f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg")
                         genres_list = game_data.get("genres", [])
                         genres = ", ".join([g.get("description") for g in genres_list]) if genres_list else "Не указано"
@@ -88,19 +86,16 @@ async def fetch_wishlist(steam_type: str, steam_val: str):
             app_ids = [item["appid"] for item in items]
             
         games_data = {}
-        # Ограничиваем до 5 одновременных запросов
         sem = asyncio.Semaphore(5) 
         
-        # Создаем пул задач и запускаем их параллельно
         tasks = [fetch_game_details(appid, session, sem, games_data) for appid in app_ids]
         await asyncio.gather(*tasks)
             
         return games_data
 
 async def fetch_prices_for_watcher(app_ids: list):
-    """Массовая проверка цен для Watcher'а."""
     games_data = {}
-    sem = asyncio.Semaphore(5) # Все те же 5 одновременных запросов
+    sem = asyncio.Semaphore(5)
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -108,7 +103,6 @@ async def fetch_prices_for_watcher(app_ids: list):
     }
     
     async with aiohttp.ClientSession(headers=headers) as session:
-        # Запускаем таски параллельно
         tasks = [fetch_game_details(appid, session, sem, games_data) for appid in app_ids]
         await asyncio.gather(*tasks)
             
@@ -125,7 +119,6 @@ async def fetch_single_game(appid: str):
                 if data and data.get(appid, {}).get("success"):
                     game_data = data[appid]["data"]
                     
-                    # 1. Цены
                     price_overview = game_data.get("price_overview")
                     price = initial = discount = 0
                     if price_overview:
@@ -133,14 +126,11 @@ async def fetch_single_game(appid: str):
                         initial = price_overview.get("initial", 0) // 100
                         discount = price_overview.get("discount_percent", 0)
                     
-                    # 2. Картинка (если API не вернул, ставим стандартную заглушку Steam)
                     header_image = game_data.get("header_image", f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg")
                     
-                    # 3. Жанры (превращаем список словарей в строку через запятую)
                     genres_list = game_data.get("genres", [])
                     genres = ", ".join([g.get("description") for g in genres_list]) if genres_list else "Не указано"
                     
-                    # 4. Metacritic
                     metacritic = game_data.get("metacritic", {}).get("score", "Нет оценки")
                         
                     return {
@@ -172,7 +162,6 @@ async def fetch_freebies():
                         flair = p_data.get("link_flair_text", "")
                         post_url = p_data.get("url", "")
                         
-                        # ФИЛЬТР: Только [Steam], не Expired, и СТРОГО домен магазина Steam
                         if "[Steam]" in title and flair != "Expired" and flair != "Discussion":
                             if "store.steampowered.com" in post_url:
                                 freebies.append({

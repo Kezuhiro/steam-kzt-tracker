@@ -60,7 +60,6 @@ async def check_wishlist(message: types.Message):
         await message.answer("🔗 Привяжи профиль Steam в главном меню, чтобы я мог найти твои игры.")
         return
 
-    # Записываем сообщение в переменную, чтобы потом его обновить, а не спамить новым
     msg = await message.answer("⏳ Стягиваю данные из Steam, подожди немного...")
     
     data = await steam_api.fetch_wishlist(user_data[0], user_data[1])
@@ -68,8 +67,6 @@ async def check_wishlist(message: types.Message):
     if not data:
         await msg.edit_text("📭 Твой вишлист пуст или скрыт настройками приватности.")
         return
-
-    # 1. Подготавливаем данные для сортировки
     games = []
     for game_id, info in data.items():
         name = info.get('name', 'Неизвестно')
@@ -89,16 +86,12 @@ async def check_wishlist(message: types.Message):
             'discount': discount
         })
 
-    # Сортируем: сначала максимальные скидки, затем по возрастанию цены
     games.sort(key=lambda x: (-x['discount'], x['price']))
-
-    # 2. Разделяем на группы
     discounted_games = [g for g in games if g['discount'] > 0]
     regular_games = [g for g in games if g['discount'] == 0]
 
     response_text = "📋 <b>Твой вишлист:</b>\n\n"
 
-    # 3. Формируем красивый вывод
     if discounted_games:
         response_text += "🔥 <b>Игры по скидке:</b>\n"
         for game in discounted_games:
@@ -118,18 +111,15 @@ async def check_wishlist(message: types.Message):
             if game['price'] > 0:
                 price_str = f"<b>{game['price']} ₸</b>"
             elif game['price'] == 0 and game['initial'] == 0 and not game.get('subs'):
-                # Если подписок нет вообще (игра не вышла)
                 price_str = "<i>Нет цены</i>"
             else:
                 price_str = "<b>Бесплатно</b>"
                 
             response_text += f"🔹 {name_link} — {price_str}\n"
 
-    # 4. Обработка лимита Telegram
     if len(response_text) > 4000:
         response_text = response_text[:4000] + "\n\n<i>...И еще много игр, которые не влезли. Нажми кнопку ниже, чтобы начать их отслеживать.</i>"
 
-    # Удаляем сообщение со статусом загрузки и присылаем результат
     await msg.delete()
     await message.answer(response_text, parse_mode="HTML", reply_markup=track_all_kb(), disable_web_page_preview=True)
 
@@ -159,7 +149,7 @@ async def process_manual_game(message: types.Message, state: FSMContext):
         await message.answer("❌ Игра не найдена или недоступна в регионе.")
         return
 
-    # Сохраняем в БД (передаем новые параметры)
+    # Сохраняем в БД 
     await db.save_tracked_game(
         int(app_id), 
         game_info["name"], 
@@ -180,7 +170,6 @@ async def process_manual_game(message: types.Message, state: FSMContext):
     else:
         price_str = f"<b>{game_info['price']} ₸</b>"
 
-    # КРАСИВАЯ КАРТОЧКА (Caption)
     caption = (
         f"🎮 <b>{game_info['name']}</b>\n\n"
         f"🎭 Жанры: <i>{game_info['genres']}</i>\n"
@@ -189,12 +178,10 @@ async def process_manual_game(message: types.Message, state: FSMContext):
         f"✅ <i>Добавлено в мониторинг</i>"
     )
 
-    # Кнопка ссылки
     steam_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Открыть в Steam", url=f"https://store.steampowered.com/app/{app_id}")]
     ])
 
-    # Отправляем фото
     try:
         await message.answer_photo(
             photo=game_info["header_image"],
@@ -203,19 +190,17 @@ async def process_manual_game(message: types.Message, state: FSMContext):
             reply_markup=steam_kb
         )
     except Exception as e:
-        # Fallback, если вдруг картинка битая
         await message.answer(caption, parse_mode="HTML", reply_markup=steam_kb)
 
-    # Возвращаем главное меню отдельным сообщением, если нужно
     await state.clear()
 
-# Обработка удаления игры из подписок
+
 @router.callback_query(F.data.startswith("untrack_"))
 async def process_untrack(callback: types.CallbackQuery):
     app_id = int(callback.data.split("_")[1])
     await db.untrack_game(callback.from_user.id, app_id)
     
-    # Обновляем список
+
     games = await db.get_user_tracked_games(callback.from_user.id)
     if not games:
         await callback.message.edit_text("Список отслеживания пуст.")
@@ -243,7 +228,7 @@ async def process_track_wishlist(callback: types.CallbackQuery):
     for app_id_str, info in data.items():
         app_id = int(app_id_str)
         name = info.get('name', 'Неизвестно')
-        # Извлекаем новые поля
+
         header_image = info.get('header_image', '')
         genres = info.get('genres', 'Не указано')
         metacritic = str(info.get('metacritic', 'Нет оценки'))
@@ -256,7 +241,7 @@ async def process_track_wishlist(callback: types.CallbackQuery):
             initial = subs[0].get('initial', 0) // 100
             discount = subs[0].get('discount_pct', 0)
 
-        # Передаем все 8 аргументов
+
         await db.save_tracked_game(app_id, name, price, initial, discount, header_image, genres, metacritic)
         await db.link_user_game(callback.from_user.id, app_id)
 
@@ -292,7 +277,7 @@ async def settings_menu(message: types.Message):
         return
         
     wants_freebies = user_settings[0]
-    # Получаем количество игр для красоты (опционально)
+
     tracked_games = await db.get_user_tracked_games(message.from_user.id)
     games_count = len(tracked_games)
     
