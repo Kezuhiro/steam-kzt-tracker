@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  steam_bot:
+    build: .
+    container_name: steam_kzt_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./steam_bot.db:/app/steam_bot.db
