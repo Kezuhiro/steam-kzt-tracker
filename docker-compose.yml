@@ -1,11 +1,45 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15-alpine
+    container_name: steam_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: steam_user
+      POSTGRES_PASSWORD: steam_password
+      POSTGRES_DB: steam_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
   steam_bot:
     build: .
     container_name: steam_kzt_bot
     restart: always
     env_file:
       - .env
+    depends_on:
+      - db
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama_ai
+    restart: always
+    ports:
+      - "11434:11434"
     volumes:
-      - ./steam_bot.db:/app/steam_bot.db
+      - ollama_storage:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  pg_data:
+  ollama_storage:

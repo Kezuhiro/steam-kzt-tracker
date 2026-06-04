@@ -5,9 +5,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+from core.ai_service import ai_service
 from core import database as db
 from core import steam_api
-from bot.keyboards import main_menu, track_all_kb, tracked_games_kb, settings_kb
+from bot.keyboards import main_menu, track_all_kb, tracked_games_kb, settings_kb, game_card_kb, ai_scout_kb
 from core.config import STEAM_LINK_RE
 from bot.states import BotStates
 
@@ -91,20 +92,29 @@ async def check_wishlist(message: types.Message):
     regular_games = [g for g in games if g['discount'] == 0]
 
     response_text = "📋 <b>Твой вишлист:</b>\n\n"
+    limit_reached = False
 
     if discounted_games:
         response_text += "🔥 <b>Игры по скидке:</b>\n"
         for game in discounted_games:
+            # 🔥 Проверка лимита ДО добавления новой строки (~3900 символов с запасом)
+            if len(response_text) > 3900:
+                limit_reached = True
+                break
+                
             url = f"https://store.steampowered.com/app/{game['id']}"
             name_link = f"<a href='{url}'>{game['name']}</a>"
             price_str = f"<s>{game['initial']}</s> <b>{game['price']} ₸</b> (-{game['discount']}%)"
-            
             response_text += f"🔻 {name_link} — {price_str}\n"
         response_text += "\n"
 
-    if regular_games:
+    if regular_games and not limit_reached:
         response_text += "📁 <b>Без скидки:</b>\n"
         for game in regular_games:
+            if len(response_text) > 3900:
+                limit_reached = True
+                break
+                
             url = f"https://store.steampowered.com/app/{game['id']}"
             name_link = f"<a href='{url}'>{game['name']}</a>"
             
@@ -117,8 +127,9 @@ async def check_wishlist(message: types.Message):
                 
             response_text += f"🔹 {name_link} — {price_str}\n"
 
-    if len(response_text) > 4000:
-        response_text = response_text[:4000] + "\n\n<i>...И еще много игр, которые не влезли. Нажми кнопку ниже, чтобы начать их отслеживать.</i>"
+    # 🔥 Если лимит превышен, добавляем красивую плашку. Строку при этом НЕ РЕЖЕМ!
+    if limit_reached:
+        response_text += "\n\n<i>...И еще много игр, которые не влезли. Нажми кнопку ниже, чтобы начать их отслеживать.</i>"
 
     await msg.delete()
     await message.answer(response_text, parse_mode="HTML", reply_markup=track_all_kb(), disable_web_page_preview=True)
@@ -149,48 +160,45 @@ async def process_manual_game(message: types.Message, state: FSMContext):
         await message.answer("❌ Игра не найдена или недоступна в регионе.")
         return
 
-    # Сохраняем в БД 
+    # 🔥 ИСПРАВЛЕНО: Передаем все 12 аргументов в новую БД
     await db.save_tracked_game(
-        int(app_id), 
-        game_info["name"], 
-        game_info["price"], 
-        game_info["initial"], 
-        game_info["discount_pct"],
-        game_info["header_image"],
-        game_info["genres"],
-        str(game_info["metacritic"])
+        app_id=int(app_id), 
+        name=game_info.get("name", "Неизвестно"), 
+        last_price=game_info.get("price", 0), 
+        initial_price=game_info.get("initial", 0), 
+        discount_pct=game_info.get("discount_pct", 0),
+        header_image=game_info.get("header_image", ""),
+        genres=game_info.get("genres", "Не указано"),
+        metacritic=str(game_info.get("metacritic", "Нет оценки")),
+        short_description=game_info.get("short_description", "Описание отсутствует"),
+        pc_requirements=game_info.get("pc_requirements", "Не указаны"),
+        categories=game_info.get("categories", "Не указано"),
+        release_year=game_info.get("release_year", None)
     )
     await db.link_user_game(message.from_user.id, int(app_id))
 
-    # ФОРМИРУЕМ ЦЕНУ
-    if game_info["discount_pct"] > 0:
-        price_str = f"<s>{game_info['initial']} ₸</s> <b>{game_info['price']} ₸</b> (-{game_info['discount_pct']}%) 🔥"
-    elif game_info["price"] == 0:
+    if game_info.get("discount_pct", 0) > 0:
+        price_str = f"<s>{game_info.get('initial', 0)} ₸</s> <b>{game_info.get('price', 0)} ₸</b> (-{game_info.get('discount_pct', 0)}%) 🔥"
+    elif game_info.get("price", 0) == 0:
         price_str = "<b>Бесплатно</b>"
     else:
-        price_str = f"<b>{game_info['price']} ₸</b>"
+        price_str = f"<b>{game_info.get('price', 0)} ₸</b>"
 
     caption = (
-        f"🎮 <b>{game_info['name']}</b>\n\n"
-        f"🎭 Жанры: <i>{game_info['genres']}</i>\n"
-        f"⭐ Рейтинг Metacritic: <b>{game_info['metacritic']}</b>\n\n"
+        f"🎮 <b>{game_info.get('name', 'Неизвестно')}</b>\n\n"
+        f"🎭 Жанры: <i>{game_info.get('genres', 'Не указано')}</i>\n"
+        f"⭐ Рейтинг Metacritic: <b>{game_info.get('metacritic', 'Нет оценки')}</b>\n\n"
         f"💰 Цена: {price_str}\n\n"
         f"✅ <i>Добавлено в мониторинг</i>"
     )
 
-    steam_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Открыть в Steam", url=f"https://store.steampowered.com/app/{app_id}")]
-    ])
+    steam_url = f"https://store.steampowered.com/app/{app_id}"
+    kb = game_card_kb(int(app_id), steam_url)
 
     try:
-        await message.answer_photo(
-            photo=game_info["header_image"],
-            caption=caption,
-            parse_mode="HTML",
-            reply_markup=steam_kb
-        )
-    except Exception as e:
-        await message.answer(caption, parse_mode="HTML", reply_markup=steam_kb)
+        await message.answer_photo(photo=game_info.get("header_image"), caption=caption, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await message.answer(caption, parse_mode="HTML", reply_markup=kb)
 
     await state.clear()
 
@@ -228,7 +236,6 @@ async def process_track_wishlist(callback: types.CallbackQuery):
     for app_id_str, info in data.items():
         app_id = int(app_id_str)
         name = info.get('name', 'Неизвестно')
-
         header_image = info.get('header_image', '')
         genres = info.get('genres', 'Не указано')
         metacritic = str(info.get('metacritic', 'Нет оценки'))
@@ -241,13 +248,31 @@ async def process_track_wishlist(callback: types.CallbackQuery):
             initial = subs[0].get('initial', 0) // 100
             discount = subs[0].get('discount_pct', 0)
 
+        # Вытаскиваем новые поля (если fetch_wishlist их отдает, иначе дефолты)
+        short_desc = info.get('short_description', 'Описание отсутствует')
+        pc_reqs = info.get('pc_requirements', 'Не указаны')
+        categories = info.get('categories', 'Не указано')
+        release_year = info.get('release_year', None)
 
-        await db.save_tracked_game(app_id, name, price, initial, discount, header_image, genres, metacritic)
+        # 🔥 ИСПРАВЛЕНО: Передаем 12 аргументов
+        await db.save_tracked_game(
+            app_id=app_id, 
+            name=name, 
+            last_price=price, 
+            initial_price=initial, 
+            discount_pct=discount, 
+            header_image=header_image, 
+            genres=genres, 
+            metacritic=metacritic,
+            short_description=short_desc,
+            pc_requirements=pc_reqs,
+            categories=categories,
+            release_year=release_year
+        )
         await db.link_user_game(callback.from_user.id, app_id)
 
     await callback.message.answer("✅ Твой вишлист успешно добавлен в систему мониторинга!")
     await callback.answer()
-
 # --- ПРОСМОТР РАЗДАЧ ВРУЧНУЮ ---
 @router.message(F.text == "🎁 Текущие раздачи")
 async def manual_check_freebies(message: types.Message):
@@ -319,3 +344,157 @@ async def process_show_tracked(callback: types.CallbackQuery):
             reply_markup=tracked_games_kb(games)
         )
     await callback.answer()
+
+# 1. Главная точка входа — переключаем на инлайн-меню режимов
+@router.message(F.text == "🤖 AI Игровой Скаут")
+async def cmd_ai_scout_menu(message: types.Message, state: FSMContext):
+    await state.clear()
+    text = (
+        "🧠 <b>Добро пожаловать в ИИ-Центр управления базой Steam!</b>\n\n"
+        "Я подключен напрямую к аналитической базе данных PostgreSQL.\n"
+        "Выбери интеллектуальный режим, который тебе нужен:"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=ai_scout_kb)
+
+# 2. Обработка кликов по инлайн-кнопкам ИИ режимов
+@router.callback_query(F.data.startswith("ai_mode_"))
+async def process_ai_mode_choice(callback: types.CallbackQuery, state: FSMContext):
+    mode = callback.data.split("_")[2]
+    await callback.answer()
+    
+    if mode == "vibes":
+        await state.set_state(BotStates.ai_vibes_waiting)
+        await callback.message.answer(
+            "🎭 <b>Режим: Поиск по вайбу и атмосфере</b>\n\n"
+            "Напиши свои пожелания. Ты можешь указывать желаемый бюджет или требовать скидку прямо в тексте!\n"
+            "<i>Пример: 'хочу сложный космический выживач до 4000 тенге со скидкой' или 'что-то фановое под музыку'</i>",
+            parse_mode="HTML"
+        )
+    elif mode == "desc":
+        await state.set_state(BotStates.ai_desc_waiting)
+        await callback.message.answer(
+            "🧩 <b>Режим: Детектив (Поиск по описанию)</b>\n\n"
+            "Опиши геймплей, механики или сюжет игры, название которой ты забыл.\n"
+            "<i>Пример: 'игра где ты просыпаешься на острове, рубишь деревья, строишь дома и там есть зомби ночю'</i>",
+            parse_mode="HTML"
+        )
+    elif mode == "compare":
+        await state.set_state(BotStates.ai_compare_waiting)
+        await callback.message.answer(
+            "⚔️ <b>Режим: Баттл и сравнение игр</b>\n\n"
+            "Напиши названия двух или трех игр из топ чартов, и я сравню их ценность, скидки и геймплей.\n"
+            "<i>Пример: 'Что лучше купить: Witcher 3 или Cyberpunk 2077?'</i>",
+            parse_mode="HTML"
+        )
+
+# 3. Универсальный внутренний обработчик для текстовых стейтов ИИ
+async def execute_hybrid_rag_search(message: types.Message, state: FSMContext, mode: str):
+    user_prompt = message.text.strip()
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    
+    max_price = None
+    price_match = re.search(r'(?:до|бюджет|цена|дешевле)\s*(\d+)|(\d+)\s*(?:тенге|kzt|кзт|тг)', user_prompt, re.IGNORECASE)
+    if price_match:
+        price_str = price_match.group(1) or price_match.group(2)
+        if price_str:
+            max_price = int(price_str)
+
+    status_msg = await message.answer("🤖 ИИ подбирает подходящие тайтлы и пишет рецензию...")
+
+    # 🔥 ТЕПЕРЬ ЭТО СЛОВАРЬ: {"Имя Игры": "Почему подходит"}
+    suggested_games_dict = await ai_service.think_game_titles(user_prompt)
+    
+    if not suggested_games_dict:
+        await status_msg.edit_text("❌ ИИ не смог подобрать игры. Попробуй переформулировать запрос!")
+        await state.clear()
+        return
+
+    await status_msg.edit_text("⏳ Игры выбраны! Подтягиваю точные цены из Steam...")
+
+    ready_games = []
+
+    # 3. ЦИКЛ ОН-ДЕМАНД ПАРСИНГА С СОХРАНЕНИЕМ РЕЦЕНЗИИ
+    for title, reason in suggested_games_dict.items():
+        game_row = await db.get_game_by_name(title)
+        
+        if not game_row:
+            success = await steam_api.find_and_parse_missing_game(title)
+            if success:
+                game_row = await db.get_game_by_name(title)
+        
+        if game_row:
+            # Превращаем строку БД в словарь, чтобы добавить туда мнение ИИ
+            game_dict = dict(game_row)
+            game_dict['ai_reason'] = reason
+            ready_games.append(game_dict)
+
+    if not ready_games:
+        await status_msg.edit_text("📭 Не удалось найти точные данные по предложенным ИИ играм в Steam.")
+        await state.clear()
+        return
+
+    # 4. АЛГОРИТМ ФИЛЬТРАЦИИ ПО БЮДЖЕТУ
+    final_selection = []
+    
+    if max_price is not None:
+        in_budget_games = [g for g in ready_games if g['last_price'] <= max_price]
+        if in_budget_games:
+            final_selection = in_budget_games
+            response_header = f"🎯 <b>Игры, идеально подходящие под твой бюджет (до {max_price} ₸):</b>\n\n"
+        else:
+            ready_games.sort(key=lambda x: x['last_price'] - max_price)
+            final_selection = ready_games[:2]
+            response_header = f"⚠️ <b>В лимит {max_price} ₸ ничего не нашлось, но вот варианты с минимальной переплатой:</b>\n\n"
+    else:
+        final_selection = ready_games[:3]
+        response_header = "🎮 <b>Вот отличные игры под твой запрос:</b>\n\n"
+
+    # 5. КРАСИВЫЙ СБОР ФИНАЛЬНОГО HTML-ОТВЕТА
+    response_text = response_header
+    
+    for game in final_selection:
+        if game['discount_pct'] > 0:
+            price_str = f"<s>{game['initial_price']} ₸</s> <b>{game['last_price']} ₸</b> (-{game['discount_pct']}%) 🔥"
+        elif game['last_price'] == 0:
+            price_str = "<b>Бесплатно (Free to Play)</b>"
+        else:
+            price_str = f"<b>{game['last_price']} ₸</b>"
+
+        release_year_str = str(game['release_year']) if game['release_year'] else "Год неизвестен"
+        
+        # 🔥 ДОБАВЛЕНО ПОЛЕ 'Почему подходит'
+        response_text += (
+            f"🔹 <b>{game['name']} ({release_year_str})</b>\n"
+            f"💬 <i>Почему подходит:</i> {game['ai_reason']}\n"
+            f"🎭 Жанры: <i>{game['genres']}</i>\n"
+            f"⭐ Metacritic: <b>{game['metacritic']}</b>\n"
+            f"💰 Цена: {price_str}\n"
+            f"📝 Подробнее: <a href='https://store.steampowered.com/app/{game['app_id']}'>Ссылка в Steam</a>\n"
+            f"-----------------------------------\n\n"
+        )
+
+    await status_msg.delete()
+    await message.answer(response_text, parse_mode="HTML", reply_markup=main_menu, disable_web_page_preview=True)
+    await state.clear()
+
+# Маппинг стейтов на выполнение
+@router.message(BotStates.ai_vibes_waiting)
+async def process_vibes_mode(message: types.Message, state: FSMContext):
+    await execute_hybrid_rag_search(message, state, "vibes")
+
+@router.message(BotStates.ai_desc_waiting)
+async def process_desc_mode(message: types.Message, state: FSMContext):
+    await execute_hybrid_rag_search(message, state, "desc")
+
+@router.message(BotStates.ai_compare_waiting)
+async def process_compare_mode(message: types.Message, state: FSMContext):
+    await execute_hybrid_rag_search(message, state, "compare")
+
+# Заглушка, чтобы обычный случайный текст вне стейтов не триггерил ИИ хаотично
+@router.message(F.text & ~F.text.startswith('/'))
+async def default_text_fallback(message: types.Message):
+    await message.answer(
+        "💡 Используй кнопки меню для управления ботом.\n"
+        "Если ты хочешь запустить умный ИИ-поиск по описанию или вайбу, нажми кнопку <b>🤖 AI Игровой Скаут</b>.",
+        parse_mode="HTML"
+    )
